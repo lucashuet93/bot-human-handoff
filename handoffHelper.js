@@ -25,8 +25,13 @@ class HandoffHelper {
 		return query.exec();
 	};
 
+	fetchWaitingCustomer() {
+		const query = this.handoffAddressSchema.findOne({}, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, _id: 0 });
+		return query.exec();
+	};
+
 	updateHandoffAddress(handoffAddress) {
-		const query = this.handoffAddressSchema.findOne({ customerId: handoffAddress.customerId });
+		const query = this.handoffAddressSchema.findOne({ customerId: handoffAddress.customerId }, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, _id: 1 });
 		return query.exec()
 			.then((result) => {
 				if (result) {
@@ -48,6 +53,15 @@ class HandoffHelper {
 
 	deleteHandoffAddress(customerId) {
 		const query = this.handoffAddressSchema.deleteOne({ customerId });
+		return query.exec();
+	};
+
+	cleanDB() {
+		const query = this.handoffAddressSchema.deleteMany({});
+		return query.exec();
+	};
+	fetchEntries() {
+		const query = this.handoffAddressSchema.find({});
 		return query.exec();
 	};
 }

@@ -18,11 +18,50 @@ server.post('/proactive', (req, res) => {
 	res.send(200)
 });
 
+handoffHelper.cleanDB()
+	.then((res) => {/* Do nothing. Just clearing out each time for testing purposes */} )
+
 const bot = new builder.UniversalBot(connector, [
 	(session, args, next) => {
-		session.endConversation('Echo ' + session.message.text);
+		const userId = session.message.user.id;
+		if (isAgent(session)) {
+			handoffHelper.fetchHandoffAddressFromAgentId(userId)
+				.then((results) => {
+					if (results) {
+						//this agent is connected
+						if (session.message.text.toLowerCase().includes(' end ')) {
+							session.beginDialog('/handoffConcluded', { customerId: results.customerId })
+						} else {
+							sendProactiveMessage(results.customerAddress, session.message.text);
+						}
+					} else {
+						session.beginDialog('/unconnectedAgent')
+					}
+				}).catch((err) => {
+					console.log("ERR", err);
+				})
+		} else {
+			handoffHelper.fetchHandoffAddressFromCustomerId(userId)
+				.then((results) => {
+					if (results) {
+						//this customer is connected
+						if (results.agentAddress) {
+							sendProactiveMessage(results.agentAddress, session.message.text);
+						} else {
+							session.endDialog('You are in our queue. Thank you for your patience.')
+						}
+					} else {
+						//this customer is talking to the bot
+						session.beginDialog('/unconnectedCustomer')
+					}
+				}).catch((err) => {
+					console.log("ERR", err);
+				})
+		}
 	}
 ]);
+
+const isAgent = (session) => session.message.user.name.startsWith("Agent");
 
 const sendProactiveMessage = (address, message) => {
 	let msg = new builder.Message().address(address);
@@ -30,7 +69,6 @@ const sendProactiveMessage = (address, message) => {
 	bot.send(msg);
 }
 
-//triggerHandoff manually
 bot.dialog('/connectToAgent', (session) => {
 	const address = session.message.address;
 	const customerId = session.message.user.id;
@@ -42,16 +80,66 @@ bot.dialog('/connectToAgent', (session) => {
 	};
 	handoffHelper.updateHandoffAddress(handoffAddress)
 		.then((results) => {
-			console.log(results);
-			session.send('You will be connected with an agent soon.')
+			session.endConversation('You will be connected with an agent soon.');
 		}).catch((err) => {
 			console.log("ERR", err);
 		})
-}).triggerAction({
-	matches: /^agent/i,
-});
+})
 
-let exampleRequesBody = {
-	message: "",
-	address: {}
-}
+bot.dialog('/connectToCustomer', (session) => {
+	const address = session.message.address;
+	const agentId = session.message.user.id;
+	handoffHelper.fetchWaitingCustomer()
+		.then((results) => {
+			if (results) {
+				let handoffAddress = {
+					customerId: results.customerId,
+					customerAddress: results.customerAddress,
+					agentId: agentId,
+					agentAddress: address
+				};
+				handoffHelper.updateHandoffAddress(handoffAddress)
+					.then((results) => {
+						session.endConversation('You are connected to the customer.');
+					}).catch((err) => {
+						console.log("ERR", err);
+					})
+			} else {
+				session.send('There are no customers waiting.')
+			}
+		}).catch((err) => {
+			console.log("ERR", err);
+		})
+})
+
+bot.dialog('/unconnectedCustomer', [
+	(session, args, next) => {
+		if (session.message.text.toLowerCase().includes('agent')) {
+			session.beginDialog('/connectToAgent');
+		} else {
+			session.endConversation('Echo ' + session.message.text);
+		}
+	}
+])
+
+bot.dialog('/unconnectedAgent', [
+	(session, args, next) => {
+		if (session.message.text.toLowerCase().includes('connect')) {
+			session.beginDialog('/connectToCustomer');
+		} else {
+			session.endConversation('Echo ' + session.message.text);
+		}
+	}
+])
+
+bot.dialog('/handoffConcluded', [
+	(session, args, next) => {
+		console.log(args)
+		handoffHelper.deleteHandoffAddress()
+			.then((results) => {
+				session.endConversation('The customer has been removed from the queue.');
+			}).catch((err) => {
+				console.log("ERR", err);
+			})
+	}
+])
