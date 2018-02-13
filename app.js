@@ -26,38 +26,48 @@ server.post('/proactive', (req, res) => {
 
 const bot = new builder.UniversalBot(connector);
 
+let disconnectedFromAgent = false;
+
 bot.use({
 	botbuilder: (session, next) => {
-		const userId = session.message.user.id;
-		if (isAgent(session)) {
-			handoffHelper.fetchHandoffAddressFromAgentId(userId)
-				.then((results) => {
-					if (results) {
-						session.replaceDialog('/agentConnected', results);
-					} else {
-						session.message.text.toLowerCase().includes('connect') ? session.replaceDialog('/connectToCustomer') : next();
-					}
-				}).catch((err) => {
-					console.log("ERR", err);
-				})
+		if (disconnectedFromAgent === true) {
+			disconnectedFromAgent = false;
+			session.replaceDialog('/');
 		} else {
-			handoffHelper.fetchHandoffAddressFromCustomerId(userId)
-				.then((results) => {
-					if (results) {
-						session.replaceDialog('/customerConnected', results);
-					} else {
-						if (session.message.text.toLowerCase().includes('agent')) {
-							session.replaceDialog('/connectToAgent')
+			const userId = session.message.user.id;
+			if (isAgent(session)) {
+				handoffHelper.fetchHandoffAddressFromAgentId(userId)
+					.then((results) => {
+						if (results) {
+							session.replaceDialog('/agentConnected', results);
 						} else {
-							next();
+							session.message.text.toLowerCase().includes('connect') ? session.replaceDialog('/connectToCustomer') : next();
 						}
-					}
-				}).catch((err) => {
-					console.log("ERR", err);
-				})
+					}).catch((err) => {
+						console.log("ERR", err);
+					})
+			} else {
+				handoffHelper.fetchHandoffAddressFromCustomerId(userId)
+					.then((results) => {
+						if (results) {
+							session.replaceDialog('/customerConnected', results);
+						} else {
+							if (session.message.text.toLowerCase().includes('agent')) {
+								session.replaceDialog('/connectToAgent')
+							} else {
+								next();
+							}
+						}
+					}).catch((err) => {
+						console.log("ERR", err);
+					})
+			}
 		}
 	},
 	send: (event, next) => {
+		if (event.text === 'You have been disconnected from the agent.') {
+			disconnectedFromAgent = true;
+		}
 		next();
 	}
 })
@@ -116,7 +126,7 @@ bot.dialog('/connectToAgent', [
 bot.dialog('/agentConnected', [
 	(session, args, next) => {
 		if (session.message.text.toLowerCase().includes(' end ')) {
-			session.replaceDialog('/handoffConcluded', { customerId: args.customerId })
+			session.replaceDialog('/handoffConcluded', args)
 		} else {
 			sendProactiveMessage(args.customerAddress, session.message.text);
 		}
@@ -155,7 +165,8 @@ bot.dialog('/handoffConcluded', [
 	(session, args, next) => {
 		handoffHelper.deleteHandoffAddress(args.customerId)
 			.then((results) => {
-				session.send('The customer has been removed from the queue.').clearDialogStack();
+				sendProactiveMessage(args.customerAddress, "You have been disconnected from the agent.");
+				session.send('You have been disconnected from the customer.');
 			}).catch((err) => {
 				console.log("ERR", err);
 			});
