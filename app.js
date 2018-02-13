@@ -32,7 +32,7 @@ bot.use({
 		if (isAgent(session)) {
 			if (session.conversationData.disconnected === true) {
 				session.conversationData.disconnected = false;
-				session.replaceDialog('/');
+				session.message.text.toLowerCase().includes('connect') ? session.replaceDialog('/connectToCustomer') : session.replaceDialog('/');
 			} else {
 				mongoClient.fetchHandoffAddressFromAgentId(userId)
 					.then((results) => {
@@ -49,7 +49,7 @@ bot.use({
 					if (results) {
 						mongoClient.deleteDisconnection(userId)
 							.then((results) => {
-								session.replaceDialog('/');
+								session.message.text.toLowerCase().includes('agent') ? session.replaceDialog('/connectToAgent') : session.replaceDialog('/');
 							});
 					} else {
 						mongoClient.fetchHandoffAddressFromCustomerId(userId)
@@ -57,11 +57,7 @@ bot.use({
 								if (results) {
 									session.replaceDialog('/customerConnected', results);
 								} else {
-									if (session.message.text.toLowerCase().includes('agent')) {
-										session.replaceDialog('/connectToAgent')
-									} else {
-										next();
-									}
+									session.message.text.toLowerCase().includes('agent') ? session.replaceDialog('/connectToAgent') : next();
 								}
 							})
 					}
