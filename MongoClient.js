@@ -1,11 +1,12 @@
 let mongoose = require('mongoose');
 
-class HandoffHelper {
+class MongoClient {
 
 	constructor() {
 		this.botbuilder = require('botbuilder')
 		this.mongoConnection = `mongodb://teamshackfeb12lucas:${encodeURIComponent('FYcXeP2g1RTjuLWsQs6PLriJO2wNfTmkCGdPUYbXlTWJrfHhdNu9IACt9NF8nP9dlbM8WJG7sJWYAvy7oq6odA==')}@teamshackfeb12lucas.documents.azure.com:10255/?ssl=true&replicaSet=globaldb`;
 		this.handoffAddressSchema = mongoose.model("HandoffAddress", handoffAddress);
+		this.disconnectionSchema = mongoose.model("Disconnection", disconnection);
 		mongoose.connect(this.mongoConnection, (err) => {
 			if (err) {
 				console.log('Unable to connect to the server. Please start the server. Error:', err);
@@ -60,11 +61,22 @@ class HandoffHelper {
 		const query = this.handoffAddressSchema.deleteMany({});
 		return query.exec();
 	};
-	
-	fetchEntries() {
-		const query = this.handoffAddressSchema.find({});
+
+	///Disconnections
+
+	createDisconnection(disconnection) {
+		return new this.disconnectionSchema(disconnection).save();
+	}
+
+	fetchDisconnectionForCustomerId(customerId) {
+		const query = this.disconnectionSchema.findOne({ customerId }, { customerId: 1, agentId: 1, _id: 0 });
 		return query.exec();
-	};
+	}
+
+	deleteDisconnection(customerId) {
+		const query = this.disconnectionSchema.deleteOne({ customerId });
+		return query.exec();
+	}
 }
 
 const handoffAddress = new mongoose.Schema({
@@ -74,4 +86,9 @@ const handoffAddress = new mongoose.Schema({
 	agentAddress: Object,
 })
 
-module.exports = new HandoffHelper();
+const disconnection = new mongoose.Schema({
+	customerId: String,
+	agentId: String,
+})
+
+module.exports = new MongoClient();
