@@ -1,6 +1,6 @@
 let restify = require('restify');
 let builder = require('botbuilder');
-let handoffHelper = require('./handoffHelper');
+let handoffHelper = require('./HandoffHelper');
 
 //-------------------------------------------SERVER/BOT SETUP-------------------------------------------
 
@@ -27,9 +27,9 @@ server.post('/proactive', (req, res) => {
 const bot = new builder.UniversalBot(connector, [
 	(session, args, next) => {
 		if (isAgent(session)) {
-			session.beginDialog('/userIsAgent')
+			session.beginDialog('/userIsAgent');
 		} else {
-			session.beginDialog('/userIsCustomer')
+			session.beginDialog('/userIsCustomer');
 		}
 	}
 ]);
@@ -63,7 +63,7 @@ bot.dialog('/userIsCustomer', [
 					}
 				} else {
 					//this customer is talking to the bot
-					session.beginDialog('/unconnectedCustomer')
+					session.beginDialog('/test')
 				}
 			}).catch((err) => {
 				console.log("ERR", err);
@@ -71,40 +71,29 @@ bot.dialog('/userIsCustomer', [
 	}
 ]);
 
-bot.dialog('/unconnectedCustomer', [
+bot.dialog('/connectToAgent', [
 	(session, args, next) => {
-		if (session.message.text.toLowerCase().includes('agent')) {
-			session.beginDialog('/connectToAgent');
+		if (isAgent(session)) {
+			session.endDialog('Sorry, it looks like you are one of our help desk agents already.')
 		} else {
-			session.endConversation('Echo ' + session.message.text);
+			const address = session.message.address;
+			const customerId = session.message.user.id;
+			let handoffAddress = {
+				customerId: customerId,
+				customerAddress: address,
+				agentId: null,
+				agentAddress: null,
+			};
+			handoffHelper.updateHandoffAddress(handoffAddress)
+				.then((results) => {
+					session.endDialog('You will be connected with an agent soon.');
+				}).catch((err) => {
+					console.log("ERR", err);
+				});
 		}
 	}
-]);
-
-bot.dialog('/connectToCustomer', (session) => {
-	const address = session.message.address;
-	const agentId = session.message.user.id;
-	handoffHelper.fetchWaitingCustomer()
-		.then((results) => {
-			if (results) {
-				let handoffAddress = {
-					customerId: results.customerId,
-					customerAddress: results.customerAddress,
-					agentId: agentId,
-					agentAddress: address
-				};
-				handoffHelper.updateHandoffAddress(handoffAddress)
-					.then((results) => {
-						session.endConversation('You are connected to the customer.');
-					}).catch((err) => {
-						console.log("ERR", err);
-					});
-			} else {
-				session.send('There are no customers waiting.')
-			}
-		}).catch((err) => {
-			console.log("ERR", err);
-		});
+]).triggerAction({
+	matches: /^help/i,
 });
 
 //-------------------------------------------AGENT DIALOGS-------------------------------------------
@@ -122,7 +111,7 @@ bot.dialog('/userIsAgent', [
 						sendProactiveMessage(results.customerAddress, session.message.text);
 					}
 				} else {
-					session.beginDialog('/unconnectedAgent')
+					session.beginDialog('/test')
 				}
 			}).catch((err) => {
 				console.log("ERR", err);
@@ -130,31 +119,36 @@ bot.dialog('/userIsAgent', [
 	}
 ]);
 
-bot.dialog('/unconnectedAgent', [
-	(session, args, next) => {
-		if (session.message.text.toLowerCase().includes('connect')) {
-			session.beginDialog('/connectToCustomer');
-		} else {
-			session.endConversation('Echo ' + session.message.text);
-		}
+bot.dialog('/connectToCustomer', (session) => {
+	if (isAgent(session)) {
+		const address = session.message.address;
+		const agentId = session.message.user.id;
+		handoffHelper.fetchWaitingCustomer()
+			.then((results) => {
+				if (results) {
+					let handoffAddress = {
+						customerId: results.customerId,
+						customerAddress: results.customerAddress,
+						agentId: agentId,
+						agentAddress: address
+					};
+					handoffHelper.updateHandoffAddress(handoffAddress)
+						.then((results) => {
+							session.endDialog('You are connected to the customer.');
+						}).catch((err) => {
+							console.log("ERR", err);
+						});
+				} else {
+					session.endDialog('There are no customers waiting.')
+				}
+			}).catch((err) => {
+				console.log("ERR", err);
+			});
+	} else {
+		session.endDialog(`Hmm, I didn't quite catch that. Type 'help' to speak with a help desk agent`)
 	}
-]);
-
-bot.dialog('/connectToAgent', (session) => {
-	const address = session.message.address;
-	const customerId = session.message.user.id;
-	let handoffAddress = {
-		customerId: customerId,
-		customerAddress: address,
-		agentId: null,
-		agentAddress: null,
-	};
-	handoffHelper.updateHandoffAddress(handoffAddress)
-		.then((results) => {
-			session.endConversation('You will be connected with an agent soon.');
-		}).catch((err) => {
-			console.log("ERR", err);
-		});
+}).triggerAction({
+	matches: /^connect/i,
 });
 
 bot.dialog('/handoffConcluded', [
@@ -167,3 +161,65 @@ bot.dialog('/handoffConcluded', [
 			});
 	}
 ]);
+
+//=========================================================
+// TEST Dialogs
+//=========================================================
+
+const addTwoNumbers = (one, two) => {
+	return one + two;
+};
+const subtractTwoNumbers = (one, two) => {
+	return one - two;
+};
+
+bot.dialog('/test', [
+	(session, args, next) => {
+		if (!session.userData.name) {
+			builder.Prompts.text(session, 'Hi! What is your name?');
+		} else {
+			next();
+		}
+	},
+	(session, results) => {
+		if (results.response) {
+			session.userData.name = results.response;
+		}
+		session.send('Hi %s!', session.userData.name);
+		builder.Prompts.number(session, "Lets find the first number we want to work with. Enter a number");
+	},
+	(session, results) => {
+		session.privateConversationData.numberOne = results.response;
+		session.send('The first number you chose was %s', session.privateConversationData.numberOne);
+		builder.Prompts.number(session, "Great, now lets find the second number we want to work with. Enter another number");
+	},
+	(session, results) => {
+		session.privateConversationData.numberTwo = results.response;
+		session.send('Perfect, the two numbers you chose were %(numberOne)s and %(numberTwo)s!', session.privateConversationData);
+		builder.Prompts.choice(session, "What would you like to do with those two numbers?", ['Add', 'Subtract']);
+	},
+	(session, results) => {
+		if (results.response.entity == 'Add') {
+			session.beginDialog('/add', session.privateConversationData);
+		} else {
+			session.replaceDialog('/subtract', session.privateConversationData);
+		}
+	}
+]);
+bot.dialog('/add', [
+	(session, args, next) => {
+		session.privateConversationData = args;
+		session.send('Lets add %s and %s!', session.privateConversationData.numberOne, session.privateConversationData.numberTwo);
+		let value = addTwoNumbers(session.privateConversationData.numberOne, session.privateConversationData.numberTwo)
+		session.send('The two numbers added together make %s!', value);
+	}
+]);
+
+
+bot.dialog('/subtract', [
+	(session, args, next) => {
+		session.send('Lets subtract %s and %s!', session.privateConversationData.numberOne, session.privateConversationData.numberTwo);
+		let value = subtractTwoNumbers(session.privateConversationData.numberOne, session.privateConversationData.numberTwo)
+		session.send('The first number minus the second number is %s!', value);
+	}
+])

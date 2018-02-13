@@ -60,6 +60,7 @@ class HandoffHelper {
 		const query = this.handoffAddressSchema.deleteMany({});
 		return query.exec();
 	};
+	
 	fetchEntries() {
 		const query = this.handoffAddressSchema.find({});
 		return query.exec();
