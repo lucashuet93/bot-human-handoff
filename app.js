@@ -24,15 +24,43 @@ server.post('/proactive', (req, res) => {
 	res.send(200)
 });
 
-const bot = new builder.UniversalBot(connector, [
-	(session, args, next) => {
+const bot = new builder.UniversalBot(connector);
+
+bot.use({
+	botbuilder: (session, next) => {
+		const userId = session.message.user.id;
 		if (isAgent(session)) {
-			session.beginDialog('/userIsAgent');
+			handoffHelper.fetchHandoffAddressFromAgentId(userId)
+				.then((results) => {
+					if (results) {
+						session.replaceDialog('/agentConnected', results);
+					} else {
+						session.message.text.toLowerCase().includes('connect') ? session.replaceDialog('/connectToCustomer') : next();
+					}
+				}).catch((err) => {
+					console.log("ERR", err);
+				})
 		} else {
-			session.beginDialog('/userIsCustomer');
+			handoffHelper.fetchHandoffAddressFromCustomerId(userId)
+				.then((results) => {
+					if (results) {
+						session.replaceDialog('/customerConnected', results);
+					} else {
+						if (session.message.text.toLowerCase().includes('agent')) {
+							session.replaceDialog('/connectToAgent')
+						} else {
+							next();
+						}
+					}
+				}).catch((err) => {
+					console.log("ERR", err);
+				})
 		}
+	},
+	send: (event, next) => {
+		next();
 	}
-]);
+})
 
 //-------------------------------------------HELPER METHODS-------------------------------------------
 
@@ -49,32 +77,21 @@ const sendProactiveMessage = (address, message) => {
 
 //-------------------------------------------CUSTOMER DIALOGS-------------------------------------------
 
-bot.dialog('/userIsCustomer', [
+bot.dialog('/customerConnected', [
 	(session, args, next) => {
-		const userId = session.message.user.id;
-		handoffHelper.fetchHandoffAddressFromCustomerId(userId)
-			.then((results) => {
-				if (results) {
-					//this customer is connected
-					if (results.agentAddress) {
-						sendProactiveMessage(results.agentAddress, session.message.text);
-					} else {
-						session.endDialog('You are in our queue. Thank you for your patience.')
-					}
-				} else {
-					//this customer is talking to the bot
-					session.beginDialog('/test')
-				}
-			}).catch((err) => {
-				console.log("ERR", err);
-			})
+		//this customer is connected
+		if (args.agentAddress) {
+			sendProactiveMessage(args.agentAddress, session.message.text);
+		} else {
+			session.send('You are in our queue. Thank you for your patience.')
+		}
 	}
 ]);
 
 bot.dialog('/connectToAgent', [
 	(session, args, next) => {
 		if (isAgent(session)) {
-			session.endDialog('Sorry, it looks like you are one of our help desk agents already.')
+			session.send('Sorry, it looks like you are one of our help desk agents already.')
 		} else {
 			const address = session.message.address;
 			const customerId = session.message.user.id;
@@ -86,36 +103,23 @@ bot.dialog('/connectToAgent', [
 			};
 			handoffHelper.updateHandoffAddress(handoffAddress)
 				.then((results) => {
-					session.endDialog('You will be connected with an agent soon.');
+					session.send('You will be connected with an agent soon.');
 				}).catch((err) => {
 					console.log("ERR", err);
 				});
 		}
 	}
-]).triggerAction({
-	matches: /^help/i,
-});
+])
 
 //-------------------------------------------AGENT DIALOGS-------------------------------------------
 
-bot.dialog('/userIsAgent', [
+bot.dialog('/agentConnected', [
 	(session, args, next) => {
-		const userId = session.message.user.id;
-		handoffHelper.fetchHandoffAddressFromAgentId(userId)
-			.then((results) => {
-				if (results) {
-					//this agent is connected
-					if (session.message.text.toLowerCase().includes(' end ')) {
-						session.beginDialog('/handoffConcluded', { customerId: results.customerId })
-					} else {
-						sendProactiveMessage(results.customerAddress, session.message.text);
-					}
-				} else {
-					session.beginDialog('/test')
-				}
-			}).catch((err) => {
-				console.log("ERR", err);
-			})
+		if (session.message.text.toLowerCase().includes(' end ')) {
+			session.replaceDialog('/handoffConcluded', { customerId: args.customerId })
+		} else {
+			sendProactiveMessage(args.customerAddress, session.message.text);
+		}
 	}
 ]);
 
@@ -134,28 +138,24 @@ bot.dialog('/connectToCustomer', (session) => {
 					};
 					handoffHelper.updateHandoffAddress(handoffAddress)
 						.then((results) => {
-							session.endDialog('You are connected to the customer.');
+							session.send('You are connected to the customer.');
 						}).catch((err) => {
 							console.log("ERR", err);
 						});
 				} else {
-					session.endDialog('There are no customers waiting.')
+					session.send('There are no customers waiting.');
 				}
 			}).catch((err) => {
 				console.log("ERR", err);
 			});
-	} else {
-		session.endDialog(`Hmm, I didn't quite catch that. Type 'help' to speak with a help desk agent`)
 	}
-}).triggerAction({
-	matches: /^connect/i,
-});
+})
 
 bot.dialog('/handoffConcluded', [
 	(session, args, next) => {
 		handoffHelper.deleteHandoffAddress(args.customerId)
 			.then((results) => {
-				session.endConversation('The customer has been removed from the queue.');
+				session.send('The customer has been removed from the queue.').clearDialogStack();
 			}).catch((err) => {
 				console.log("ERR", err);
 			});
@@ -173,7 +173,7 @@ const subtractTwoNumbers = (one, two) => {
 	return one - two;
 };
 
-bot.dialog('/test', [
+bot.dialog('/', [
 	(session, args, next) => {
 		if (!session.userData.name) {
 			builder.Prompts.text(session, 'Hi! What is your name?');
@@ -200,12 +200,13 @@ bot.dialog('/test', [
 	},
 	(session, results) => {
 		if (results.response.entity == 'Add') {
-			session.beginDialog('/add', session.privateConversationData);
+			session.replaceDialog('/add', session.privateConversationData);
 		} else {
 			session.replaceDialog('/subtract', session.privateConversationData);
 		}
 	}
 ]);
+
 bot.dialog('/add', [
 	(session, args, next) => {
 		session.privateConversationData = args;
@@ -215,11 +216,18 @@ bot.dialog('/add', [
 	}
 ]);
 
-
 bot.dialog('/subtract', [
 	(session, args, next) => {
 		session.send('Lets subtract %s and %s!', session.privateConversationData.numberOne, session.privateConversationData.numberTwo);
 		let value = subtractTwoNumbers(session.privateConversationData.numberOne, session.privateConversationData.numberTwo)
 		session.send('The first number minus the second number is %s!', value);
 	}
-])
+]);
+
+bot.dialog('/test', [
+	(session, args, next) => {
+		session.endDialog('testing');
+	}
+]).triggerAction({
+	matches: /^test/i,
+});
