@@ -12,6 +12,8 @@ class MongoClient {
 				console.log('Unable to connect to the server. Please start the server. Error:', err);
 			} else {
 				console.log('Connected to Cosmos DB successfully!');
+				this.cleanDB()
+					.then((res) => {/* Do nothing. Just clearing out each time for testing purposes */ console.log('Cleaned DB')})
 			}
 		});
 	}
