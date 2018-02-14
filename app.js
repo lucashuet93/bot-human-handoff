@@ -35,7 +35,7 @@ let handoffConfig = {
 	isAgent: (session) => { return session.message.user.name.startsWith("Agent") },
 	connectToAgentTriggerPhrase: 'agent',
 	connectToNextCustomerTriggerPhrase: 'connect',
-	disconnectFromCustomerTriggerPhrase: 'end',
+	disconnectTriggerPhrase: 'end',
 	dialogToRouteToAfterDisconnect: '/',
 	saveConversationTranscripts: true
 }

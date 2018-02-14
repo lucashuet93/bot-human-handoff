@@ -6,45 +6,44 @@ class HumanHandoff {
 		this.bot = bot;
 		this.mongoClient = require('./MongoClient');
 		this.config = config;
-
 		this.bot.on('conversationUpdate', (message) => this.onConversationUpdate(message));
 
 		//Middleware
 		this.bot.use({
 			botbuilder: (session, next) => {
-				console.log(session.message.type)
+				if(!session.conversationData.firstRun){
+					session.conversationData.firstRun = true;
+					session.conversationData.expectingConnection = false;
+				}
 				const userId = session.message.user.id;
 				if (this.config.isAgent(session)) {
-					if (session.conversationData.disconnected === true) {
-						session.conversationData.disconnected = false;
-						session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
-					} else {
-						this.mongoClient.fetchHandoffAddressFromAgentId(userId)
-							.then((results) => {
-								if (results) {
-									session.replaceDialog('/agentConnected', results);
+					this.mongoClient.fetchHandoff(userId)
+						.then((results) => {
+							if (results) {
+								session.conversationData.expectingConnection = true;
+								session.replaceDialog('/agentConnected', results);
+							} else {
+								if (session.conversationData.expectingConnection) {
+									session.conversationData.expectingConnection = false;
+									session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
 								} else {
 									session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : next();
 								}
-							}).catch((err) => { console.log("Error: ", err) });
-					}
+							}
+						}).catch((err) => { console.log("Error: ", err) });
 				} else {
-					this.mongoClient.fetchDisconnectionForCustomerId(userId)
+					this.mongoClient.fetchHandoff(userId)
 						.then((results) => {
 							if (results) {
-								this.mongoClient.deleteDisconnection(userId)
-									.then((results) => {
-										session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
-									}).catch((err) => { console.log("Error: ", err) });
+								session.conversationData.expectingConnection = true;
+								session.replaceDialog('/customerConnected', results);
 							} else {
-								this.mongoClient.fetchHandoffAddressFromCustomerId(userId)
-									.then((results) => {
-										if (results) {
-											session.replaceDialog('/customerConnected', results);
-										} else {
-											session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : next();
-										}
-									}).catch((err) => { console.log("Error: ", err) });
+								if (session.conversationData.expectingConnection) {
+									session.conversationData.expectingConnection = false;
+									session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
+								} else {
+									session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : next();
+								}
 							}
 						}).catch((err) => { console.log("Error: ", err) });
 				}
@@ -71,17 +70,15 @@ class HumanHandoff {
 			let p = new Promise((resolve, reject) => {
 				members.map(m => {
 					if (m.id !== botId) {
-						//Humans have left the one on one chat. Clear their handoffAddresses and disconnection objects.
+						//Humans have left or entered the one on one chat. Clear their handoff objects.
 						let userId = m.id;
-						this.mongoClient.deleteDisconnection(userId)
-							.then((disconnectionResults) => {
-								this.mongoClient.deleteHandoffAddress(userId)
-									.then((handoffResults) => {
-										++count;
-										if (count === message.membersAdded.length) {
-											resolve();
-										}
-									})
+						this.mongoClient.deleteHandoff(userId)
+							.then((handoffResults) => {
+								++count;
+								if (count === message.membersAdded.length) {
+									session.conversationData.expectingConnection = false;
+									resolve();
+								}
 							})
 					}
 				})
@@ -94,9 +91,12 @@ class HumanHandoff {
 	createCustomerDialogs() {
 		this.bot.dialog('/customerConnected', [
 			(session, args, next) => {
-				//this customer is connected
 				if (args.agentAddress) {
-					this.sendProactiveMessage(args.agentAddress, session.message.text);
+					if (session.message.text.toLowerCase().includes(this.config.disconnectTriggerPhrase)) {
+						session.replaceDialog('/handoffConcluded', args)
+					} else {
+						this.sendProactiveMessage(args.agentAddress, session.message.text);
+					}
 				} else {
 					session.send('You are in our queue. Thank you for your patience.')
 				}
@@ -115,8 +115,9 @@ class HumanHandoff {
 						agentId: null,
 						agentAddress: null,
 					};
-					this.mongoClient.updateHandoffAddress(handoffAddress)
+					this.mongoClient.updateHandoff(handoffAddress)
 						.then((results) => {
+							session.conversationData.expectingConnection = true;
 							session.send('You will be connected with an agent soon.');
 						}).catch((err) => { console.log("Error: ", err) });
 				}
@@ -127,7 +128,7 @@ class HumanHandoff {
 	createAgentDialogs() {
 		this.bot.dialog('/agentConnected', [
 			(session, args, next) => {
-				if (session.message.text.toLowerCase().includes(this.config.disconnectFromCustomerTriggerPhrase)) {
+				if (session.message.text.toLowerCase().includes(this.config.disconnectTriggerPhrase)) {
 					session.replaceDialog('/handoffConcluded', args)
 				} else {
 					this.sendProactiveMessage(args.customerAddress, session.message.text);
@@ -147,8 +148,9 @@ class HumanHandoff {
 								agentId: agentId,
 								agentAddress: address
 							};
-							this.mongoClient.updateHandoffAddress(handoffAddress)
+							this.mongoClient.updateHandoff(handoffAddress)
 								.then((results) => {
+									session.conversationData.expectingConnection = true;
 									session.send('You are connected to the customer.');
 								}).catch((err) => { console.log("Error: ", err) });
 						} else {
@@ -159,18 +161,16 @@ class HumanHandoff {
 		});
 		this.bot.dialog('/handoffConcluded', [
 			(session, args, next) => {
-				this.mongoClient.deleteHandoffAddress(args.customerId)
+				let userId = this.config.isAgent(session) ? args.agentId : args.customerId;
+				this.mongoClient.deleteHandoff(userId)
 					.then((results) => {
-						let disconnection = {
-							customerId: args.customerId,
-							agentId: args.agentId
+						if (this.config.isAgent(session)) {
+							this.sendProactiveMessage(args.customerAddress, "You have been disconnected from the agent.");
+							session.send('You have been disconnected from the customer.');
+						} else {
+							this.sendProactiveMessage(args.agentAddress, "You have been disconnected from the customer.");
+							session.send('You have been disconnected from the agent.');
 						}
-						this.mongoClient.createDisconnection(disconnection)
-							.then((results) => {
-								session.conversationData.disconnected = true;
-								this.sendProactiveMessage(args.customerAddress, "You have been disconnected from the agent.");
-								session.send('You have been disconnected from the customer.');
-							}).catch((err) => { console.log("Error: ", err) });
 					}).catch((err) => { console.log("Error: ", err) });
 			}
 		]);
