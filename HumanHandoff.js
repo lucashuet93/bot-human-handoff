@@ -22,7 +22,7 @@ class HumanHandoff {
 								} else {
 									session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : next();
 								}
-							})
+							}).catch((err) => { console.log("Error: ", err) });
 					}
 				} else {
 					this.mongoClient.fetchDisconnectionForCustomerId(userId)
@@ -30,8 +30,8 @@ class HumanHandoff {
 							if (results) {
 								this.mongoClient.deleteDisconnection(userId)
 									.then((results) => {
-										session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : session.replaceDialog('/');
-									});
+										session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
+									}).catch((err) => { console.log("Error: ", err) });
 							} else {
 								this.mongoClient.fetchHandoffAddressFromCustomerId(userId)
 									.then((results) => {
@@ -40,9 +40,9 @@ class HumanHandoff {
 										} else {
 											session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : next();
 										}
-									})
+									}).catch((err) => { console.log("Error: ", err) });
 							}
-						})
+						}).catch((err) => { console.log("Error: ", err) });
 				}
 			},
 			send: (event, next) => {
@@ -86,7 +86,7 @@ class HumanHandoff {
 					this.mongoClient.updateHandoffAddress(handoffAddress)
 						.then((results) => {
 							session.send('You will be connected with an agent soon.');
-						})
+						}).catch((err) => { console.log("Error: ", err) });
 				}
 			}
 		]);
@@ -118,11 +118,11 @@ class HumanHandoff {
 							this.mongoClient.updateHandoffAddress(handoffAddress)
 								.then((results) => {
 									session.send('You are connected to the customer.');
-								})
+								}).catch((err) => { console.log("Error: ", err) });
 						} else {
 							session.send('There are no customers waiting.');
 						}
-					})
+					}).catch((err) => { console.log("Error: ", err) });
 			}
 		});
 		this.bot.dialog('/handoffConcluded', [
@@ -138,8 +138,8 @@ class HumanHandoff {
 								session.conversationData.disconnected = true;
 								this.sendProactiveMessage(args.customerAddress, "You have been disconnected from the agent.");
 								session.send('You have been disconnected from the customer.');
-							})
-					})
+							}).catch((err) => { console.log("Error: ", err) });
+					}).catch((err) => { console.log("Error: ", err) });
 			}
 		]);
 	}
