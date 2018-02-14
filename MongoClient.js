@@ -12,8 +12,6 @@ class MongoClient {
 				console.log('Unable to connect to the server. Please start the server. Error:', err);
 			} else {
 				console.log('Connected to Cosmos DB successfully!');
-				this.cleanDB()
-					.then((res) => {/* Do nothing. Just clearing out each time for testing purposes */ console.log('Cleaned DB')})
 			}
 		});
 	}
@@ -54,8 +52,8 @@ class MongoClient {
 			});
 	};
 
-	deleteHandoffAddress(customerId) {
-		const query = this.handoffAddressSchema.deleteOne({ customerId });
+	deleteHandoffAddress(userId) {
+		const query = this.handoffAddressSchema.deleteOne({ $or: [{ customerId: userId }, { agentId: userId }] });
 		return query.exec();
 	};
 
@@ -75,8 +73,8 @@ class MongoClient {
 		return query.exec();
 	}
 
-	deleteDisconnection(customerId) {
-		const query = this.disconnectionSchema.deleteOne({ customerId });
+	deleteDisconnection(userId) {
+		const query = this.disconnectionSchema.deleteOne({ $or: [{ customerId: userId }, { agentId: userId }] });
 		return query.exec();
 	}
 }

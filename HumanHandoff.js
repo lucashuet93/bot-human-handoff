@@ -6,9 +6,13 @@ class HumanHandoff {
 		this.bot = bot;
 		this.mongoClient = require('./MongoClient');
 		this.config = config;
+
+		this.bot.on('conversationUpdate', (message) => this.onConversationUpdate(message));
+
 		//Middleware
 		this.bot.use({
 			botbuilder: (session, next) => {
+				console.log(session.message.type)
 				const userId = session.message.user.id;
 				if (this.config.isAgent(session)) {
 					if (session.conversationData.disconnected === true) {
@@ -58,6 +62,34 @@ class HumanHandoff {
 		msg.text(message);
 		this.bot.send(msg);
 	}
+
+	onConversationUpdate(message) {
+		let botId = message.address.bot.id;
+		let members = message.membersAdded ? message.membersAdded : message.membersRemoved;
+		if (members.length > 0) {
+			let count = 0;
+			let p = new Promise((resolve, reject) => {
+				members.map(m => {
+					if (m.id !== botId) {
+						//Humans have left the one on one chat. Clear their handoffAddresses and disconnection objects.
+						let userId = m.id;
+						this.mongoClient.deleteDisconnection(userId)
+							.then((disconnectionResults) => {
+								this.mongoClient.deleteHandoffAddress(userId)
+									.then((handoffResults) => {
+										++count;
+										if (count === message.membersAdded.length) {
+											resolve();
+										}
+									})
+							})
+					}
+				})
+			}).then((result) => {
+				return;
+			})
+		}
+	};
 
 	createCustomerDialogs() {
 		this.bot.dialog('/customerConnected', [
