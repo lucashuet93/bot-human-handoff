@@ -2,24 +2,25 @@ let builder = require('botbuilder');
 
 class HumanHandoff {
 
-	constructor(bot) {
+	constructor(bot, config) {
 		this.bot = bot;
 		this.mongoClient = require('./MongoClient');
+		this.config = config;
 		//Middleware
 		this.bot.use({
 			botbuilder: (session, next) => {
 				const userId = session.message.user.id;
-				if (this.isAgent(session)) {
+				if (this.config.isAgent(session)) {
 					if (session.conversationData.disconnected === true) {
 						session.conversationData.disconnected = false;
-						session.message.text.toLowerCase().includes('connect') ? session.replaceDialog('/connectToCustomer') : session.replaceDialog('/');
+						session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
 					} else {
 						this.mongoClient.fetchHandoffAddressFromAgentId(userId)
 							.then((results) => {
 								if (results) {
 									session.replaceDialog('/agentConnected', results);
 								} else {
-									session.message.text.toLowerCase().includes('connect') ? session.replaceDialog('/connectToCustomer') : next();
+									session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : next();
 								}
 							})
 					}
@@ -29,7 +30,7 @@ class HumanHandoff {
 							if (results) {
 								this.mongoClient.deleteDisconnection(userId)
 									.then((results) => {
-										session.message.text.toLowerCase().includes('agent') ? session.replaceDialog('/connectToAgent') : session.replaceDialog('/');
+										session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : session.replaceDialog('/');
 									});
 							} else {
 								this.mongoClient.fetchHandoffAddressFromCustomerId(userId)
@@ -37,7 +38,7 @@ class HumanHandoff {
 										if (results) {
 											session.replaceDialog('/customerConnected', results);
 										} else {
-											session.message.text.toLowerCase().includes('agent') ? session.replaceDialog('/connectToAgent') : next();
+											session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : next();
 										}
 									})
 							}
@@ -52,15 +53,13 @@ class HumanHandoff {
 		this.createAgentDialogs();
 	}
 
-	isAgent (session) { return session.message.user.name.startsWith("Agent") };
-
-	sendProactiveMessage (address, message) {
+	sendProactiveMessage(address, message) {
 		let msg = new builder.Message().address(address);
 		msg.text(message);
 		this.bot.send(msg);
 	}
 
-	createCustomerDialogs () {
+	createCustomerDialogs() {
 		this.bot.dialog('/customerConnected', [
 			(session, args, next) => {
 				//this customer is connected
@@ -73,7 +72,7 @@ class HumanHandoff {
 		]);
 		this.bot.dialog('/connectToAgent', [
 			(session, args, next) => {
-				if (this.isAgent(session)) {
+				if (this.config.isAgent(session)) {
 					session.send('Sorry, it looks like you are one of our help desk agents already.')
 				} else {
 					const address = session.message.address;
@@ -93,10 +92,10 @@ class HumanHandoff {
 		]);
 	}
 
-	createAgentDialogs () {		
+	createAgentDialogs() {
 		this.bot.dialog('/agentConnected', [
 			(session, args, next) => {
-				if (session.message.text.toLowerCase().includes(' end ')) {
+				if (session.message.text.toLowerCase().includes(this.config.disconnectFromCustomerTriggerPhrase)) {
 					session.replaceDialog('/handoffConcluded', args)
 				} else {
 					this.sendProactiveMessage(args.customerAddress, session.message.text);
@@ -104,7 +103,7 @@ class HumanHandoff {
 			}
 		]);
 		this.bot.dialog('/connectToCustomer', (session) => {
-			if (this.isAgent(session)) {
+			if (this.config.isAgent(session)) {
 				const address = session.message.address;
 				const agentId = session.message.user.id;
 				this.mongoClient.fetchWaitingCustomer()

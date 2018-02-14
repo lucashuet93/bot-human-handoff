@@ -26,7 +26,20 @@ server.post('/proactive', (req, res) => {
 });
 
 const bot = new builder.UniversalBot(connector);
-const humanHandoff = new HumanHandoff(bot);
+
+//=========================================================
+// Human Handoff Setup
+//=========================================================
+
+let handoffConfig = {
+	isAgent: (session) => { return session.message.user.name.startsWith("Agent") },
+	connectToAgentTriggerPhrase: 'agent',
+	connectToNextCustomerTriggerPhrase: 'connect',
+	disconnectFromCustomerTriggerPhrase: 'end',
+	dialogToRouteToAfterDisconnect: '/',
+	saveConversationTranscripts: true
+}
+const humanHandoff = new HumanHandoff(bot, handoffConfig);
 
 //=========================================================
 // Test Dialogs
