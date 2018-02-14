@@ -7,46 +7,14 @@ class HumanHandoff {
 		this.mongoClient = require('./MongoClient');
 		this.config = config;
 		this.bot.on('conversationUpdate', (message) => this.onConversationUpdate(message));
-
 		//Middleware
 		this.bot.use({
 			botbuilder: (session, next) => {
-				if(!session.conversationData.firstRun){
+				if (!session.conversationData.firstRun) {
 					session.conversationData.firstRun = true;
 					session.conversationData.expectingConnection = false;
 				}
-				const userId = session.message.user.id;
-				if (this.config.isAgent(session)) {
-					this.mongoClient.fetchHandoff(userId)
-						.then((results) => {
-							if (results) {
-								session.conversationData.expectingConnection = true;
-								session.replaceDialog('/agentConnected', results);
-							} else {
-								if (session.conversationData.expectingConnection) {
-									session.conversationData.expectingConnection = false;
-									session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
-								} else {
-									session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : next();
-								}
-							}
-						}).catch((err) => { console.log("Error: ", err) });
-				} else {
-					this.mongoClient.fetchHandoff(userId)
-						.then((results) => {
-							if (results) {
-								session.conversationData.expectingConnection = true;
-								session.replaceDialog('/customerConnected', results);
-							} else {
-								if (session.conversationData.expectingConnection) {
-									session.conversationData.expectingConnection = false;
-									session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
-								} else {
-									session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : next();
-								}
-							}
-						}).catch((err) => { console.log("Error: ", err) });
-				}
+				this.config.isAgent(session) ? this.runAgentFlow(session, next) : this.runCustomerFlow(session, next);
 			},
 			send: (event, next) => {
 				next();
@@ -76,7 +44,6 @@ class HumanHandoff {
 							.then((handoffResults) => {
 								++count;
 								if (count === message.membersAdded.length) {
-									session.conversationData.expectingConnection = false;
 									resolve();
 								}
 							})
@@ -87,6 +54,24 @@ class HumanHandoff {
 			})
 		}
 	};
+
+	runCustomerFlow(session, next) {
+		const userId = session.message.user.id;
+		this.mongoClient.fetchHandoff(userId)
+			.then((results) => {
+				if (results) {
+					session.conversationData.expectingConnection = true;
+					session.replaceDialog('/customerConnected', results);
+				} else {
+					if (session.conversationData.expectingConnection) {
+						session.conversationData.expectingConnection = false;
+						session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
+					} else {
+						session.message.text.toLowerCase().includes(this.config.connectToAgentTriggerPhrase) ? session.replaceDialog('/connectToAgent') : next();
+					}
+				}
+			}).catch((err) => { console.log("Error: ", err) });
+	}
 
 	createCustomerDialogs() {
 		this.bot.dialog('/customerConnected', [
@@ -123,6 +108,24 @@ class HumanHandoff {
 				}
 			}
 		]);
+	}
+
+	runAgentFlow(session, next) {
+		const userId = session.message.user.id;
+		this.mongoClient.fetchHandoff(userId)
+			.then((results) => {
+				if (results) {
+					session.conversationData.expectingConnection = true;
+					session.replaceDialog('/agentConnected', results);
+				} else {
+					if (session.conversationData.expectingConnection) {
+						session.conversationData.expectingConnection = false;
+						session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : session.replaceDialog(this.config.dialogToRouteToAfterDisconnect);
+					} else {
+						session.message.text.toLowerCase().includes(this.config.connectToNextCustomerTriggerPhrase) ? session.replaceDialog('/connectToCustomer') : next();
+					}
+				}
+			}).catch((err) => { console.log("Error: ", err) });
 	}
 
 	createAgentDialogs() {
