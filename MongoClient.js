@@ -2,9 +2,9 @@ let mongoose = require('mongoose');
 
 class MongoClient {
 
-	constructor() {
+	constructor(mongoConnectionString) {
 		this.botbuilder = require('botbuilder')
-		this.mongoConnection = `mongodb://teamshackfeb12lucas:${encodeURIComponent('FYcXeP2g1RTjuLWsQs6PLriJO2wNfTmkCGdPUYbXlTWJrfHhdNu9IACt9NF8nP9dlbM8WJG7sJWYAvy7oq6odA==')}@teamshackfeb12lucas.documents.azure.com:10255/?ssl=true&replicaSet=globaldb`;
+		this.mongoConnection = mongoConnectionString
 		this.handoffModel = mongoose.model("Handoff", handoffSchema);
 		this.conversationHistoryModel = mongoose.model("ConversationHistory", handoffSchema);
 		mongoose.connect(this.mongoConnection, (err) => {
@@ -104,4 +104,4 @@ const handoffSchema = new mongoose.Schema({
 	]
 })
 
-module.exports = new MongoClient();
+module.exports = MongoClient;

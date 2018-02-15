@@ -1,6 +1,5 @@
 let restify = require('restify');
 let builder = require('botbuilder');
-let mongoClient = require('./MongoClient');
 let HumanHandoff = require('./HumanHandoff');
 
 //-------------------------------------------SERVER/BOT SETUP-------------------------------------------
@@ -37,7 +36,8 @@ let handoffConfig = {
 	connectToNextCustomerTriggerPhrase: 'connect',
 	disconnectTriggerPhrase: 'end call',
 	dialogToRouteToAfterDisconnect: '/',
-	saveConversations: true
+	saveConversations: true,
+	mongoDBConnectionString: `mongodb://teamshackfeb12lucas:${encodeURIComponent('FYcXeP2g1RTjuLWsQs6PLriJO2wNfTmkCGdPUYbXlTWJrfHhdNu9IACt9NF8nP9dlbM8WJG7sJWYAvy7oq6odA==')}@teamshackfeb12lucas.documents.azure.com:10255/?ssl=true&replicaSet=globaldb`
 }
 const humanHandoff = new HumanHandoff(bot, handoffConfig);
 

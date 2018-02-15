@@ -1,11 +1,12 @@
 let builder = require('botbuilder');
+let MongoClient = require('./MongoClient');
 
 class HumanHandoff {
 
 	constructor(bot, config) {
 		this.bot = bot;
-		this.mongoClient = require('./MongoClient');
 		this.config = config;
+		this.mongoClient = new MongoClient(this.config.mongoDBConnectionString);
 		this.bot.on('conversationUpdate', (message) => this.onConversationUpdate(message));
 		//Middleware
 		this.bot.use({
