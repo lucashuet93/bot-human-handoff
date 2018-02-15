@@ -6,6 +6,7 @@ class MongoClient {
 		this.botbuilder = require('botbuilder')
 		this.mongoConnection = `mongodb://teamshackfeb12lucas:${encodeURIComponent('FYcXeP2g1RTjuLWsQs6PLriJO2wNfTmkCGdPUYbXlTWJrfHhdNu9IACt9NF8nP9dlbM8WJG7sJWYAvy7oq6odA==')}@teamshackfeb12lucas.documents.azure.com:10255/?ssl=true&replicaSet=globaldb`;
 		this.handoffModel = mongoose.model("Handoff", handoffSchema);
+		this.conversationHistoryModel = mongoose.model("ConversationHistory", handoffSchema);
 		mongoose.connect(this.mongoConnection, (err) => {
 			if (err) {
 				console.log('Unable to connect to the server. Please start the server. Error:', err);
@@ -16,17 +17,17 @@ class MongoClient {
 	}
 
 	fetchHandoff(userId) {
-		const query = this.handoffModel.findOne({ $or: [{ customerId: userId }, { agentId: userId }] }, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, _id: 0 });
+		const query = this.handoffModel.findOne({ $or: [{ customerId: userId }, { agentId: userId }] }, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, conversationHistory: 1, _id: 0 });
 		return query.exec();
 	};
 
 	fetchWaitingCustomer() {
-		const query = this.handoffModel.findOne({}, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, _id: 0 });
+		const query = this.handoffModel.findOne({}, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, conversationHistory: 1, _id: 0 });
 		return query.exec();
 	};
 
 	updateHandoff(handoff) {
-		const query = this.handoffModel.findOne({ customerId: handoff.customerId }, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, _id: 1 });
+		const query = this.handoffModel.findOne({ customerId: handoff.customerId }, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, conversationHistory: 1, _id: 1 });
 		return query.exec()
 			.then((result) => {
 				if (result) {
@@ -35,10 +36,11 @@ class MongoClient {
 					result.customerId = handoff.customerId;
 					result.agentAddress = handoff.agentAddress;
 					result.agentId = handoff.agentId;
+					result.conversationHistory = handoff.conversationHistory;
 					return result.save();
 				} else {
 					//create
-					return new this.handoffModel(handoff).save()
+					return new this.handoffModel(handoff).save();
 				}
 			})
 			.catch((err) => {
@@ -46,22 +48,60 @@ class MongoClient {
 			});
 	};
 
-	deleteHandoff(userId) {
-		const query = this.handoffModel.deleteOne({ $or: [{ customerId: userId }, { agentId: userId }] });
-		return query.exec();
+	deleteHandoff(userId, saveConversation, initialRun = false) {
+		if (saveConversation === true && !initialRun) {
+			return this.saveConversation(userId)
+				.then((response) => {
+					const query = this.handoffModel.deleteOne({ $or: [{ customerId: userId }, { agentId: userId }] });
+					return query.exec();
+				})
+		} else {
+			const query = this.handoffModel.deleteOne({ $or: [{ customerId: userId }, { agentId: userId }] });
+			return query.exec();
+		}
 	};
 
-	cleanDB() {
-		const query = this.handoffModel.deleteMany({});
+	saveConversation(userId) {
+		const query = this.handoffModel.findOne({ $or: [{ customerId: userId }, { agentId: userId }] }, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, conversationHistory: 1, _id: 0 });
+		return query.exec()
+			.then((result) => {
+				let conversationHistoryModel = {
+					customerAddress: result.customerAddress,
+					customerId: result.customerId,
+					agentAddress: result.agentAddress,
+					agentId: result.agentId,
+					conversationHistory: result.conversationHistory
+				}
+				return new this.conversationHistoryModel(conversationHistoryModel).save();
+			})
+	}
+
+	findHistories() {
+		const query = this.conversationHistoryModel.find({}, { customerId: 1, customerAddress: 1, agentId: 1, agentAddress: 1, conversationHistory: 1, _id: 0 });
 		return query.exec();
-	};
+	}
+
+	cleanDB() {
+		const query = this.conversationHistoryModel.deleteMany({});
+		return query.exec()
+			.then((res) => {
+				return this.handoffModel.deleteMany({}).exec()
+			})
+	}
 }
 
 const handoffSchema = new mongoose.Schema({
 	customerId: String,
 	customerAddress: Object,
 	agentId: String,
-	agentAddress: Object
+	agentAddress: Object,
+	conversationHistory: [
+		{
+			timestamp: String,
+			userId: String,
+			messageText: String
+		}
+	]
 })
 
 module.exports = new MongoClient();

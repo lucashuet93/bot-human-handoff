@@ -40,18 +40,18 @@ class HumanHandoff {
 					if (m.id !== botId) {
 						//Humans have left or entered the one on one chat. Clear their handoff objects.
 						let userId = m.id;
-						this.mongoClient.deleteHandoff(userId)
+						this.mongoClient.deleteHandoff(userId, this.config.saveConversations, true)
 							.then((handoffResults) => {
 								++count;
 								if (count === message.membersAdded.length) {
 									resolve();
 								}
-							})
+							}).catch((err) => { console.log("Error1: ", err) });
 					}
 				})
 			}).then((result) => {
 				return;
-			})
+			}).catch((err) => { console.log("Error: ", err) });
 		}
 	};
 
@@ -80,7 +80,29 @@ class HumanHandoff {
 					if (session.message.text.toLowerCase().includes(this.config.disconnectTriggerPhrase)) {
 						session.replaceDialog('/handoffConcluded', args)
 					} else {
-						this.sendProactiveMessage(args.agentAddress, session.message.text);
+						//the customer is connected to an agent and just said something that is not a disconnect statement
+						if (this.config.saveConversations) {
+							let newHistory = [...args.conversationHistory];
+							newHistory.push({
+								timestamp: session.message.timestamp,
+								userId: session.message.user.id,
+								messageText: session.message.text
+							})
+							let handoffWithHistory = {
+								customerId: args.customerId,
+								customerAddress: args.customerAddress,
+								agentId: args.agentId,
+								agentAddress: args.agentAddress,
+								conversationHistory: newHistory
+							}
+							this.mongoClient.updateHandoff(handoffWithHistory)
+								.then((results) => {
+									this.sendProactiveMessage(args.agentAddress, session.message.text);
+								}).catch((err) => { console.log("Error: ", err) });
+
+						} else {
+							this.sendProactiveMessage(args.agentAddress, session.message.text);
+						}
 					}
 				} else {
 					session.send('You are in our queue. Thank you for your patience.')
@@ -99,6 +121,7 @@ class HumanHandoff {
 						customerAddress: address,
 						agentId: null,
 						agentAddress: null,
+						conversationHistory: []
 					};
 					this.mongoClient.updateHandoff(handoffAddress)
 						.then((results) => {
@@ -134,7 +157,29 @@ class HumanHandoff {
 				if (session.message.text.toLowerCase().includes(this.config.disconnectTriggerPhrase)) {
 					session.replaceDialog('/handoffConcluded', args)
 				} else {
-					this.sendProactiveMessage(args.customerAddress, session.message.text);
+					//the agent is connected to a customer and just said something that is not a disconnect statement
+					if (this.config.saveConversations) {
+						let newHistory = [...args.conversationHistory];
+						newHistory.push({
+							timestamp: session.message.timestamp,
+							userId: session.message.user.id,
+							messageText: session.message.text
+						})
+						let handoffWithHistory = {
+							customerId: args.customerId,
+							customerAddress: args.customerAddress,
+							agentId: args.agentId,
+							agentAddress: args.agentAddress,
+							conversationHistory: newHistory
+						}
+						this.mongoClient.updateHandoff(handoffWithHistory)
+							.then((results) => {
+								this.sendProactiveMessage(args.customerAddress, session.message.text);
+							}).catch((err) => { console.log("Error: ", err) });
+
+					} else {
+						this.sendProactiveMessage(args.customerAddress, session.message.text);
+					}
 				}
 			}
 		]);
@@ -149,7 +194,8 @@ class HumanHandoff {
 								customerId: results.customerId,
 								customerAddress: results.customerAddress,
 								agentId: agentId,
-								agentAddress: address
+								agentAddress: address,
+								conversationHistory: []
 							};
 							this.mongoClient.updateHandoff(handoffAddress)
 								.then((results) => {
@@ -165,7 +211,7 @@ class HumanHandoff {
 		this.bot.dialog('/handoffConcluded', [
 			(session, args, next) => {
 				let userId = this.config.isAgent(session) ? args.agentId : args.customerId;
-				this.mongoClient.deleteHandoff(userId)
+				this.mongoClient.deleteHandoff(userId, this.config.saveConversations)
 					.then((results) => {
 						if (this.config.isAgent(session)) {
 							this.sendProactiveMessage(args.customerAddress, "You have been disconnected from the agent.");
